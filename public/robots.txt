@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /pagefind/
+
+Sitemap: https://blog.example.com/sitemap-index.xml
