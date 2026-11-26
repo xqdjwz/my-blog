@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "innovate-blog"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "e3ab3d12-2984-4594-aa62-b8bc468d8496"
 
 [vars]
 # 允许调用接口的站点来源，逗号分隔。不要写 *（会允许任意站点抓取付费内容）
