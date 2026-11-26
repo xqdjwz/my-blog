@@ -1,0 +1,27 @@
+name = "innovate-blog-api"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Cloudflare 控制台创建 D1 数据库后，把 database_id 填到这里
+[[d1_databases]]
+binding = "DB"
+database_name = "innovate-blog"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[vars]
+# 允许调用接口的站点来源，逗号分隔。不要写 *（会允许任意站点抓取付费内容）
+ALLOWED_ORIGINS = "https://blog.example.com,http://localhost:4321,http://localhost:4399"
+TOKEN_TTL_DAYS = "30"
+PAY_TIMEOUT_MINUTES = "15"
+
+# 支付宝当面付（应用 ID 不是密钥，可以写在这里；私钥和支付宝公钥必须用 secret 设置）
+ALIPAY_APP_ID = "REPLACE_WITH_YOUR_APP_ID"
+ALIPAY_NOTIFY_URL = "https://REPLACE-WITH-YOUR-WORKER-DOMAIN/api/pay/notify"
+
+# 本地调试用：设为 "1" 时不下真实单，扫码后 15 秒自动视为已支付。上线前必须删掉这行
+ALIPAY_MOCK = "1"
+
+# 密钥不要写在这里（这里是明文，会进 Git）。
+# 用 Cloudflare 控制台 → 该 Worker → Settings → Variables and Secrets，
+# 添加 Secret：TOKEN_SECRET / ADMIN_TOKEN / ALIPAY_PRIVATE_KEY / ALIPAY_PUBLIC_KEY
