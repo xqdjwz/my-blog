@@ -1,0 +1,29 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PostCard from '../../components/PostCard.astro';
+import { getAllPosts, getCategories } from '../../lib/posts';
+
+const posts = await getAllPosts();
+const categories = getCategories(posts);
+---
+
+<BaseLayout title="文章" description="全部文章列表，按时间倒序排列。">
+  <div class="container">
+    <section class="hero" style="padding-bottom: 8px;">
+      <h1 style="font-size: clamp(24px, 3.4vw, 32px);">全部文章</h1>
+      <p>共 {posts.length} 篇 · 按发布时间倒序</p>
+    </section>
+
+    <div class="filter-row">
+      {categories.map((category) => (
+        <a class="filter-chip" href={`/categories/${category.slug}/`}>
+          {category.name} {category.count}
+        </a>
+      ))}
+    </div>
+
+    <div class="post-list">
+      {posts.map((post) => <PostCard post={post} />)}
+    </div>
+  </div>
+</BaseLayout>

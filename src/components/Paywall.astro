@@ -1,0 +1,300 @@
+---
+interface Props {
+  slug: string;
+  price?: number;
+  apiBase: string;
+}
+
+const { slug, price = 0, apiBase } = Astro.props;
+const hasPrice = price > 0;
+---
+
+<div class="paywall-fade"></div>
+
+<div class="paywall" id="paywall" data-slug={slug} data-api={apiBase} data-price={String(price)}>
+  <div class="paywall-icon" aria-hidden="true">🔒</div>
+  <h2>这是一篇付费文章</h2>
+  <p>
+    上面是免费试读部分。{hasPrice ? `支付 ¥${price} 后即可查看全文，` : ''}付款成功会自动解锁，
+    30 天内在当前设备无需重复支付。
+  </p>
+
+  <div id="pay-pick">
+    {hasPrice && (
+      <button type="button" class="btn btn-primary btn-block" id="pay-start">
+        支付宝扫码支付 ¥{price}
+      </button>
+    )}
+    <button type="button" class="btn btn-block" id="code-toggle">我有兑换码</button>
+  </div>
+
+  <div id="pay-qr" hidden>
+    <div class="qr-wrap">
+      <canvas id="qr-canvas" width="200" height="200" aria-label="支付宝付款二维码"></canvas>
+    </div>
+    <div class="qr-meta">
+      <div>应付金额 <strong id="qr-amount">¥{price}</strong></div>
+      <div>订单号 <code id="qr-order"></code></div>
+      <div class="qr-hint" id="qr-hint">打开支付宝扫一扫，付款后自动解锁</div>
+    </div>
+    <div class="pay-actions">
+      <button type="button" class="btn" id="pay-cancel">取消</button>
+    </div>
+  </div>
+
+  <form class="paywall-form" id="code-form" hidden>
+    <input
+      id="code-input"
+      name="code"
+      type="text"
+      autocomplete="one-time-code"
+      spellcheck="false"
+      placeholder="BLOG-XXXX-XXXX"
+      aria-label="阅读兑换码"
+    />
+    <button class="btn btn-primary" type="submit" id="code-submit">解锁全文</button>
+  </form>
+
+  <div class="paywall-msg" id="paywall-msg"></div>
+</div>
+
+<div class="paid-body prose" id="paid-body" hidden></div>
+
+<script>
+  import QRCode from 'qrcode';
+
+  const STORAGE_KEY = 'innovate-blog-tokens';
+  const paywall = document.getElementById('paywall');
+  const paidBody = document.getElementById('paid-body');
+
+  if (paywall && paidBody) {
+    const pick = document.getElementById('pay-pick') as HTMLDivElement;
+    const qrBox = document.getElementById('pay-qr') as HTMLDivElement;
+    const canvas = document.getElementById('qr-canvas') as HTMLCanvasElement;
+    const amountEl = document.getElementById('qr-amount') as HTMLElement;
+    const orderEl = document.getElementById('qr-order') as HTMLElement;
+    const hintEl = document.getElementById('qr-hint') as HTMLElement;
+    const codeForm = document.getElementById('code-form') as HTMLFormElement;
+    const msg = document.getElementById('paywall-msg') as HTMLDivElement;
+    const startBtn = document.getElementById('pay-start') as HTMLButtonElement | null;
+    const codeToggle = document.getElementById('code-toggle') as HTMLButtonElement;
+    const codeInput = document.getElementById('code-input') as HTMLInputElement;
+    const codeSubmit = document.getElementById('code-submit') as HTMLButtonElement;
+
+    const slug = paywall.dataset.slug ?? '';
+    const api = (paywall.dataset.api ?? '').replace(/\/$/, '');
+    const price = Number(paywall.dataset.price ?? 0);
+
+    let timer: number | undefined;
+    let currentOrder = '';
+
+    const setMsg = (text: string, kind: 'error' | 'ok' | '' = '') => {
+      msg.textContent = text;
+      msg.className = `paywall-msg ${kind}`.trim();
+    };
+
+    /* ---------- 令牌读写：按文章分开存，避免互相覆盖 ---------- */
+    const readTokens = (): Record<string, string> => {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, string>;
+      } catch {
+        return {};
+      }
+    };
+
+    const saveToken = (key: string, token: string) => {
+      const all = readTokens();
+      all[key] = token;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+    };
+
+    const tokenFor = (key: string) => readTokens()[key] ?? '';
+
+    /* ---------- 取回正文 ---------- */
+    async function loadContent(token: string): Promise<boolean> {
+      if (!token) return false;
+      try {
+        const res = await fetch(`${api}/api/article?slug=${encodeURIComponent(slug)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return false;
+        const data = (await res.json()) as { html?: string };
+        if (!data.html) return false;
+        paidBody!.innerHTML = data.html;
+        paidBody!.hidden = false;
+        paywall!.hidden = true;
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    const stopPolling = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = undefined;
+    };
+
+    /* ---------- 轮询订单状态 ---------- */
+    function poll(outTradeNo: string, startedAt: number, timeoutMinutes: number) {
+      if (currentOrder !== outTradeNo) return;
+
+      if (Date.now() - startedAt > timeoutMinutes * 60 * 1000) {
+        stopPolling();
+        hintEl.textContent = '二维码已超时，请重新点支付生成新的订单';
+        return;
+      }
+
+      fetch(`${api}/api/pay/status?outTradeNo=${encodeURIComponent(outTradeNo)}`)
+        .then(async (res) => {
+          const data = (await res.json().catch(() => ({}))) as {
+            paid?: boolean;
+            token?: string;
+            status?: string;
+          };
+
+          if (data.paid && data.token) {
+            stopPolling();
+            saveToken(slug, data.token);
+            const ok = await loadContent(data.token);
+            if (!ok) setMsg('支付成功，但正文加载失败，请刷新重试', 'error');
+            return;
+          }
+          if (data.status === 'closed') {
+            stopPolling();
+            hintEl.textContent = '订单已关闭，请重新发起支付';
+            return;
+          }
+          timer = window.setTimeout(() => poll(outTradeNo, startedAt, timeoutMinutes), 2500);
+        })
+        .catch(() => {
+          timer = window.setTimeout(() => poll(outTradeNo, startedAt, timeoutMinutes), 2500);
+        });
+    }
+
+    /* ---------- 发起支付 ---------- */
+    startBtn?.addEventListener('click', async () => {
+      if (!api) {
+        setMsg('尚未配置支付服务（PUBLIC_BLOG_API 未设置）', 'error');
+        return;
+      }
+
+      startBtn.disabled = true;
+      setMsg('正在生成支付宝订单…');
+      try {
+        const res = await fetch(`${api}/api/pay/create`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          outTradeNo?: string;
+          qrCode?: string;
+          amount?: string;
+          timeoutMinutes?: number;
+          error?: string;
+          hint?: string;
+          mock?: boolean;
+        };
+
+        if (!res.ok || !data.ok || !data.qrCode || !data.outTradeNo) {
+          setMsg(`${data.error ?? '下单失败'}${data.hint ? `。${data.hint}` : ''}`, 'error');
+          return;
+        }
+
+        await QRCode.toCanvas(canvas, data.qrCode, {
+          width: 200,
+          margin: 1,
+          color: { dark: '#111418', light: '#ffffff' },
+        });
+
+        amountEl.textContent = `¥${data.amount ?? price.toFixed(2)}`;
+        orderEl.textContent = data.outTradeNo;
+        hintEl.textContent = data.mock
+          ? '当前是模拟支付模式（ALIPAY_MOCK），十几秒后会自动解锁'
+          : '打开支付宝扫一扫，付款后自动解锁，无需刷新页面';
+
+        pick.hidden = true;
+        codeForm.hidden = true;
+        qrBox.hidden = false;
+        setMsg('');
+
+        currentOrder = data.outTradeNo;
+        const startedAt = Date.now();
+        timer = window.setTimeout(
+          () => poll(data.outTradeNo as string, startedAt, data.timeoutMinutes ?? 15),
+          2000,
+        );
+      } catch {
+        setMsg('网络异常，请稍后重试', 'error');
+      } finally {
+        startBtn.disabled = false;
+      }
+    });
+
+    document.getElementById('pay-cancel')?.addEventListener('click', () => {
+      currentOrder = '';
+      stopPolling();
+      qrBox.hidden = true;
+      pick.hidden = false;
+      setMsg('');
+    });
+
+    /* ---------- 兑换码（备用，可人工补发/赠送） ---------- */
+    codeToggle.addEventListener('click', () => {
+      pick.hidden = true;
+      qrBox.hidden = true;
+      codeForm.hidden = false;
+      codeInput.focus();
+    });
+
+    codeForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const code = codeInput.value.trim().toUpperCase();
+      if (!code) {
+        setMsg('请输入兑换码', 'error');
+        return;
+      }
+      if (!api) {
+        setMsg('尚未配置解锁服务（PUBLIC_BLOG_API 未设置）', 'error');
+        return;
+      }
+
+      codeSubmit.disabled = true;
+      setMsg('正在验证…');
+      try {
+        const res = await fetch(`${api}/api/unlock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, slug }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
+        if (!res.ok || !data.token) {
+          setMsg(data.error ?? '兑换码无效或已失效', 'error');
+          return;
+        }
+        saveToken(slug, data.token);
+        const ok = await loadContent(data.token);
+        if (!ok) setMsg('解锁成功，但正文加载失败，请刷新重试', 'error');
+      } catch {
+        setMsg('网络异常，请稍后重试', 'error');
+      } finally {
+        codeSubmit.disabled = false;
+      }
+    });
+
+    /* ---------- 进页面先用本地令牌试一次 ---------- */
+    const saved = tokenFor(slug);
+    if (saved && api) {
+      loadContent(saved).then((ok) => {
+        if (ok) {
+          stopPolling();
+          return;
+        }
+        const all = readTokens();
+        delete all[slug];
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+      });
+    }
+  }
+</script>

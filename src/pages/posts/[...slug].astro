@@ -1,0 +1,91 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Paywall from '../../components/Paywall.astro';
+import { renderMarkdown, splitBody } from '../../lib/markdown.mjs';
+import { BLOG_API } from '../../lib/config';
+import {
+  categorySlug,
+  formatDate,
+  getAllPosts,
+  postPath,
+  readingTime,
+} from '../../lib/posts';
+
+export async function getStaticPaths() {
+  const posts = await getAllPosts();
+  return posts.map((post) => ({
+    params: { slug: postPath(post) },
+    props: { post },
+  }));
+}
+
+const { post } = Astro.props;
+const path = postPath(post);
+const catSlug = categorySlug(post.data.category, post.data.categorySlug);
+
+const { preview, locked } = splitBody(post.body ?? '');
+const previewHtml = renderMarkdown(preview);
+const lockedHtml = renderMarkdown(locked);
+const isPaid = post.data.paid && locked.trim().length > 0;
+
+const apiBase = BLOG_API;
+const minutes = readingTime(post.body ?? '');
+
+const all = await getAllPosts();
+const index = all.findIndex((item) => item.id === post.id);
+const newer = index > 0 ? all[index - 1] : null;
+const older = index >= 0 && index < all.length - 1 ? all[index + 1] : null;
+
+const description = post.data.description || `《${post.data.title}》— 创新博客`;
+---
+
+<BaseLayout
+  title={post.data.title}
+  description={description}
+  image={post.data.cover}
+  category={post.data.category}
+  type="article"
+>
+  <div class="container">
+    <header class="article-header">
+      <a class="chip" href={`/categories/${catSlug}/`}>{post.data.category}</a>
+      <h1>{post.data.title}</h1>
+      <div class="post-meta">
+        <time datetime={post.data.date.toISOString()}>{formatDate(post.data.date)}</time>
+        <span class="dot"></span>
+        <span>{minutes} 分钟阅读</span>
+        {isPaid && <span class="badge-paid">🔒 付费阅读</span>}
+      </div>
+    </header>
+
+    <article class="prose" data-pagefind-body>
+      {post.data.cover && (
+        <img class="article-cover" src={post.data.cover} alt={post.data.title} loading="eager" />
+      )}
+      <Fragment set:html={previewHtml} />
+    </article>
+
+    {isPaid && (
+      <Paywall slug={path} price={post.data.price} apiBase={apiBase} />
+    )}
+
+    {post.data.tags.length > 0 && (
+      <div class="tags">
+        {post.data.tags.map((tag) => <span class="tag">{tag}</span>)}
+      </div>
+    )}
+
+    <nav class="post-meta" style="justify-content: space-between; margin-top: 40px;">
+      {older ? (
+        <a href={`/posts/${postPath(older)}/`}>← {older.data.title}</a>
+      ) : (
+        <span></span>
+      )}
+      {newer ? (
+        <a href={`/posts/${postPath(newer)}/`}>{newer.data.title} →</a>
+      ) : (
+        <span></span>
+      )}
+    </nav>
+  </div>
+</BaseLayout>

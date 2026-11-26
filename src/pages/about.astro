@@ -1,0 +1,32 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="关于" description="关于这个博客与作者。">
+  <div class="container">
+    <section class="hero" style="padding-bottom: 0;">
+      <h1 style="font-size: clamp(24px, 3.4vw, 32px);">关于</h1>
+    </section>
+
+    <article class="prose">
+      <p>
+        这里是我的个人写作空间，用来长期记录技术实践、产品思考与创作复盘。
+        内容不追热点，只关心那些几年后回看仍然成立的经验。
+      </p>
+      <h2>内容结构</h2>
+      <ul>
+        <li><strong>分类</strong>：每篇文章归属一个主题分类，可在「分类」页归档浏览。</li>
+        <li><strong>搜索</strong>：全站关键词检索，支持按分类筛选。</li>
+        <li><strong>付费阅读</strong>：部分深度长文只开放前段预览，凭兑换码解锁全文。</li>
+      </ul>
+      <h2>技术栈</h2>
+      <p>
+        站点用 <a href="https://astro.build" target="_blank" rel="noopener">Astro</a> 静态生成，
+        托管在 Cloudflare Pages；搜索由 Pagefind 在构建期生成索引；
+        付费内容与兑换码校验运行在 Cloudflare Workers + D1 上。
+      </p>
+      <h2>联系</h2>
+      <p>如需获取付费文章的兑换码，或想交流选题，欢迎来信：hello@example.com。</p>
+    </article>
+  </div>
+</BaseLayout>

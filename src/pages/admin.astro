@@ -1,0 +1,174 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="管理" description="站点管理工具，仅作者使用。">
+  <div class="container">
+    <section class="hero" style="padding-bottom: 0;">
+      <h1 style="font-size: clamp(22px, 3vw, 28px);">管理</h1>
+      <p>生成支付密钥、发放兑换码、查看订单。口令只保存在你自己的浏览器里。</p>
+    </section>
+
+    <div class="admin-panel">
+      <label class="admin-label" for="admin-token">管理口令（ADMIN_TOKEN）</label>
+      <div class="search-box" style="margin-top: 8px;">
+        <input id="admin-token" type="password" placeholder="粘贴你在 Cloudflare 后台设置的管理口令" />
+        <button class="btn btn-primary" id="admin-save" type="button">保存</button>
+      </div>
+      <div class="search-status" id="admin-status"></div>
+    </div>
+
+    <div class="admin-panel">
+      <h2>① 生成支付密钥</h2>
+      <p class="admin-note">
+        点一次生成一对 RSA2 密钥。<strong>只点一次</strong>：公钥填到支付宝开放平台，私钥填到 Cloudflare 的
+        <code>ALIPAY_PRIVATE_KEY</code>。重新生成会导致旧的对不上，需要重新上传公钥。
+      </p>
+      <button class="btn" id="genkey" type="button">生成密钥对</button>
+      <div id="genkey-result" hidden>
+        <div class="key-block">
+          <div class="key-title">应用公钥（填到支付宝开放平台 → 应用公钥）</div>
+          <textarea class="key-text" id="pub-key" readonly rows="4"></textarea>
+        </div>
+        <div class="key-block">
+          <div class="key-title">应用私钥（存进 Cloudflare 的 ALIPAY_PRIVATE_KEY 密钥）</div>
+          <textarea class="key-text" id="pri-key" readonly rows="5"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="admin-panel">
+      <h2>② 发放兑换码</h2>
+      <p class="admin-note">用于赠送、补发、线下收款后手动开通。用户在文章页点「我有兑换码」输入即可。</p>
+      <div class="admin-grid">
+        <input id="code-slug" type="text" placeholder="文章 slug，如 paywall-design" />
+        <input id="code-count" type="number" value="1" min="1" max="200" placeholder="数量" />
+        <input id="code-uses" type="number" value="1" min="0" placeholder="每码可用次数（0=不限）" />
+        <input id="code-note" type="text" placeholder="备注，如「微信转账 张三」" />
+      </div>
+      <button class="btn btn-primary" id="create-code" type="button" style="margin-top: 10px;">生成兑换码</button>
+      <div id="code-result" class="admin-result"></div>
+    </div>
+
+    <div class="admin-panel">
+      <h2>③ 最近订单</h2>
+      <button class="btn" id="load-orders" type="button">刷新订单</button>
+      <div id="orders-result" class="admin-result"></div>
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  const KEY = 'innovate-blog-admin-token';
+
+  const tokenInput = document.getElementById('admin-token') as HTMLInputElement;
+  const statusEl = document.getElementById('admin-status') as HTMLDivElement;
+
+  tokenInput.value = localStorage.getItem(KEY) ?? '';
+  if (tokenInput.value) statusEl.textContent = '已保存管理口令';
+
+  document.getElementById('admin-save')!.addEventListener('click', () => {
+    localStorage.setItem(KEY, tokenInput.value.trim());
+    statusEl.textContent = tokenInput.value.trim() ? '已保存管理口令' : '已清除管理口令';
+  });
+
+  const token = () => tokenInput.value.trim() || localStorage.getItem(KEY) || '';
+  const api = (document.body.dataset.apiBase ?? '').replace(/\/$/, '');
+
+  const auth = () => ({ Authorization: `Bearer ${token()}` });
+
+  const setStatus = (msg: string) => {
+    statusEl.textContent = msg;
+  };
+
+  document.getElementById('genkey')!.addEventListener('click', async () => {
+    if (!confirm('确定生成新密钥？如果已经上传过公钥，旧密钥会失效。')) return;
+    setStatus('生成中…');
+    try {
+      const res = await fetch(`${api}/api/admin/genkey`, { headers: auth() });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setStatus(data.error ?? '生成失败，请先保存正确的管理口令');
+        return;
+      }
+      (document.getElementById('pub-key') as HTMLTextAreaElement).value = data.appPublicKey;
+      (document.getElementById('pri-key') as HTMLTextAreaElement).value = data.privateKey;
+      (document.getElementById('genkey-result') as HTMLDivElement).hidden = false;
+      setStatus('密钥已生成。私钥请立刻复制到 Cloudflare，页面关掉就看不到了。');
+    } catch {
+      setStatus('网络异常');
+    }
+  });
+
+  document.getElementById('create-code')!.addEventListener('click', async () => {
+    const slug = (document.getElementById('code-slug') as HTMLInputElement).value.trim();
+    if (!slug) {
+      setStatus('请填写文章 slug');
+      return;
+    }
+    const body = {
+      scope: 'article',
+      slug,
+      count: Number((document.getElementById('code-count') as HTMLInputElement).value || 1),
+      maxUses: Number((document.getElementById('code-uses') as HTMLInputElement).value || 1),
+      note: (document.getElementById('code-note') as HTMLInputElement).value || undefined,
+    };
+    setStatus('生成中…');
+    try {
+      const res = await fetch(`${api}/api/admin/codes`, {
+        method: 'POST',
+        headers: { ...auth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setStatus(data.error ?? '生成失败');
+        return;
+      }
+      const list = (data.codes ?? []).map((item: any) => item.code).join('\n');
+      (document.getElementById('code-result') as HTMLDivElement).innerHTML =
+        `<div class="key-title">已生成 ${data.count} 个（复制给读者）</div><textarea class="key-text" rows="${Math.min(
+          8,
+          Math.max(2, data.count),
+        )}" readonly>${list}</textarea>`;
+      setStatus('生成成功');
+    } catch {
+      setStatus('网络异常');
+    }
+  });
+
+  document.getElementById('load-orders')!.addEventListener('click', async () => {
+    setStatus('读取订单…');
+    try {
+      const res = await fetch(`${api}/api/admin/orders?limit=30`, { headers: auth() });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setStatus(data.error ?? '读取失败');
+        return;
+      }
+      const rows = data.orders ?? [];
+      if (rows.length === 0) {
+        (document.getElementById('orders-result') as HTMLDivElement).innerHTML =
+          '<p class="admin-note">还没有订单。</p>';
+        setStatus('');
+        return;
+      }
+      const html = rows
+        .map(
+          (o: any) => `<tr>
+            <td>${(o.created_at ?? '').slice(0, 16).replace('T', ' ')}</td>
+            <td>${o.slug}</td>
+            <td>¥${Number(o.amount).toFixed(2)}</td>
+            <td>${o.status === 'paid' ? '<span class="ok">已付</span>' : o.status}</td>
+            <td class="mono">${o.out_trade_no}</td>
+          </tr>`,
+        )
+        .join('');
+      (document.getElementById('orders-result') as HTMLDivElement).innerHTML =
+        `<table class="admin-table"><thead><tr><th>时间</th><th>文章</th><th>金额</th><th>状态</th><th>订单号</th></tr></thead><tbody>${html}</tbody></table>`;
+      setStatus(`共 ${rows.length} 笔`);
+    } catch {
+      setStatus('网络异常');
+    }
+  });
+</script>

@@ -1,0 +1,134 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="搜索" description="按关键词搜索全站文章，可按分类筛选。">
+  <div class="container">
+    <section class="hero" style="padding-bottom: 4px;">
+      <h1 style="font-size: clamp(24px, 3.4vw, 32px);">搜索</h1>
+      <p>支持中文分词，输入关键词即可检索标题与正文（付费文章的已解锁部分不在索引内）。</p>
+    </section>
+
+    <form class="search-box" id="search-form" role="search">
+      <input
+        id="search-input"
+        type="search"
+        placeholder="输入关键词，例如「Cloudflare」「付费墙」"
+        autocomplete="off"
+        aria-label="搜索关键词"
+      />
+    </form>
+
+    <div class="filter-row" id="filter-row" hidden></div>
+    <div class="search-status" id="search-status">输入关键词开始搜索</div>
+    <div class="post-list" id="results"></div>
+  </div>
+</BaseLayout>
+
+<script>
+  const input = document.getElementById('search-input') as HTMLInputElement;
+  const form = document.getElementById('search-form') as HTMLFormElement;
+  const statusEl = document.getElementById('search-status') as HTMLDivElement;
+  const resultsEl = document.getElementById('results') as HTMLDivElement;
+  const filterRow = document.getElementById('filter-row') as HTMLDivElement;
+
+  let pagefind: any = null;
+  let ready = false;
+  let selected: Record<string, string[]> = {};
+
+  const setStatus = (text: string) => {
+    statusEl.textContent = text;
+  };
+
+  async function ensureIndex() {
+    if (ready) return true;
+    try {
+      const url = `${window.location.origin}/pagefind/pagefind.js`;
+      pagefind = await import(/* @vite-ignore */ url);
+      await pagefind.options({ excerptLength: 90 });
+      await pagefind.init();
+      ready = true;
+      return true;
+    } catch {
+      setStatus('搜索索引未找到：请先执行 npm run build 后再用 npm run preview 预览。');
+      return false;
+    }
+  }
+
+  async function buildFilters() {
+    if (!pagefind || filterRow.childElementCount > 0) return;
+    const filters = await pagefind.filters();
+    const entries = Object.entries(filters.category ?? {}) as [string, number][];
+    if (entries.length === 0) return;
+
+    filterRow.hidden = false;
+    for (const [name, count] of entries) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'filter-chip';
+      chip.setAttribute('aria-pressed', 'false');
+      chip.textContent = `${name} ${count}`;
+      chip.addEventListener('click', () => {
+        const active = chip.getAttribute('aria-pressed') === 'true';
+        chip.setAttribute('aria-pressed', active ? 'false' : 'true');
+        const list = selected.category ?? [];
+        selected.category = active ? list.filter((item) => item !== name) : [...list, name];
+        if (selected.category.length === 0) delete selected.category;
+        run();
+      });
+      filterRow.appendChild(chip);
+    }
+  }
+
+  async function run() {
+    const query = input.value.trim();
+    if (!ready) return;
+    if (!query) {
+      resultsEl.innerHTML = '';
+      setStatus('输入关键词开始搜索');
+      return;
+    }
+
+    setStatus('搜索中…');
+    const result = await pagefind.search(query, { filters: selected });
+    const shown = result.results.slice(0, 20);
+    const items = await Promise.all(shown.map((item: any) => item.data()));
+
+    if (items.length === 0) {
+      resultsEl.innerHTML = '';
+      setStatus(`没有找到与「${query}」相关的文章`);
+      return;
+    }
+
+    setStatus(`找到 ${result.results.length} 条结果${result.results.length > 20 ? '，显示前 20 条' : ''}`);
+    resultsEl.innerHTML = items
+      .map(
+        (item: any) => `
+        <article class="post-card">
+          <div class="post-card-body">
+            <h3><a href="${item.url}">${item.meta?.title ?? item.url}</a></h3>
+            <p>${item.excerpt ?? ''}</p>
+          </div>
+        </article>`,
+      )
+      .join('');
+  }
+
+  let timer: number | undefined;
+  input.addEventListener('input', () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(run, 220);
+  });
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    run();
+  });
+
+  ensureIndex().then(async (ok) => {
+    if (!ok) return;
+    await buildFilters();
+    if (input.value.trim()) run();
+    input.focus();
+  });
+</script>

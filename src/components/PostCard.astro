@@ -1,0 +1,35 @@
+---
+import { categorySlug, formatDate, postPath, postSummary } from '../lib/posts';
+import type { Post } from '../lib/posts';
+
+interface Props {
+  post: Post;
+  showCover?: boolean;
+}
+
+const { post, showCover = true } = Astro.props;
+const catSlug = categorySlug(post.data.category, post.data.categorySlug);
+---
+
+<article class="post-card">
+  <div class="post-card-body">
+    <h3>
+      <a href={`/posts/${postPath(post)}`}>{post.data.title}</a>
+    </h3>
+    <p>{postSummary(post)}</p>
+    <div class="post-meta">
+      <a class="chip" href={`/categories/${catSlug}`}>{post.data.category}</a>
+      <time datetime={post.data.date.toISOString()}>{formatDate(post.data.date)}</time>
+      {post.data.paid && <span class="badge-paid">🔒 付费阅读</span>}
+    </div>
+  </div>
+  {showCover && post.data.cover && (
+    <img
+      class="post-card-cover"
+      src={post.data.cover}
+      alt=""
+      loading="lazy"
+      decoding="async"
+    />
+  )}
+</article>

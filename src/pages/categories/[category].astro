@@ -1,0 +1,36 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PostCard from '../../components/PostCard.astro';
+import { categorySlug, getAllPosts, getCategories, type Post } from '../../lib/posts';
+
+export async function getStaticPaths() {
+  const posts = await getAllPosts();
+  const categories = getCategories(posts);
+
+  return categories.map((category) => ({
+    params: { category: category.slug },
+    props: {
+      name: category.name,
+      posts: posts.filter(
+        (post) => categorySlug(post.data.category, post.data.categorySlug) === category.slug,
+      ) as Post[],
+    },
+  }));
+}
+
+const { name, posts } = Astro.props as { name: string; posts: Post[] };
+---
+
+<BaseLayout title={name} description={`分类「${name}」下的全部文章，共 ${posts.length} 篇。`}>
+  <div class="container">
+    <section class="hero" style="padding-bottom: 8px;">
+      <a class="chip" href="/categories/">← 全部分类</a>
+      <h1 style="font-size: clamp(24px, 3.4vw, 32px); margin-top: 16px;">{name}</h1>
+      <p>共 {posts.length} 篇文章</p>
+    </section>
+
+    <div class="post-list">
+      {posts.map((post) => <PostCard post={post} />)}
+    </div>
+  </div>
+</BaseLayout>

@@ -1,0 +1,61 @@
+---
+import '../styles/global.css';
+import 'highlight.js/styles/github-dark.css';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import { BLOG_API } from '../lib/config';
+
+interface Props {
+  title?: string;
+  description?: string;
+  image?: string;
+  category?: string;
+  type?: 'website' | 'article';
+}
+
+const {
+  title,
+  description = '记录技术、思考与创作的地方。',
+  image,
+  category,
+  type = 'website',
+} = Astro.props;
+
+const siteName = '创新博客';
+const fullTitle = title ? `${title} · ${siteName}` : siteName;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const ogImage = image ? new URL(image, Astro.site) : undefined;
+
+// 付费墙 API 地址来自 .env / Cloudflare 构建环境变量
+const apiBase = BLOG_API;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate" type="application/rss+xml" title={siteName} href="/rss.xml" />
+    {category && <meta data-pagefind-filter="category[content]" content={category} />}
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content={type} />
+    <meta property="og:url" content={canonical} />
+    {ogImage && <meta property="og:image" content={ogImage} />}
+    <meta name="twitter:card" content={ogImage ? 'summary_large_image' : 'summary'} />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0e1014" media="(prefers-color-scheme: dark)" />
+  </head>
+  <body data-api-base={apiBase}>
+    <Header />
+    <main>
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>
