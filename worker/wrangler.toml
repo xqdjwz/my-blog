@@ -11,7 +11,7 @@ database_id = "e3ab3d12-2984-4594-aa62-b8bc468d8496"
 
 [vars]
 # 允许调用接口的站点来源，逗号分隔。不要写 *（会允许任意站点抓取付费内容）
-ALLOWED_ORIGINS = "https://blog.example.com,http://localhost:4321,http://localhost:4399"
+ALLOWED_ORIGINS = "https://my-blog-59z.pages.dev,https://myblog.99vip.eu.org"
 TOKEN_TTL_DAYS = "30"
 PAY_TIMEOUT_MINUTES = "15"
 
